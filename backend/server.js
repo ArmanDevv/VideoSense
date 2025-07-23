@@ -6,7 +6,11 @@ const bcrypt = require('bcryptjs');
 const cors = require('cors');
 require('dotenv').config(); 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: ['https://videosense.vercel.app/'],  // Allows all origins (less secure but works for development)
+  credentials: true
+}));
+
 app.use(express.json());
 app.use(bodyParser.json());
 

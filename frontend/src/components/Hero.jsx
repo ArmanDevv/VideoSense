@@ -27,8 +27,8 @@ const Hero = () => {
         
         try {
             const url = authMode === 'login' 
-                ? 'http://localhost:5000/api/login' 
-                : 'http://localhost:5000/api/register';
+                ? 'http://videosense-production.up.railway.app/api/login' 
+                : 'http://videosense-production.up.railway.app/api/register';
                 
             const response = await fetch(url, {
                 method: 'POST',
