@@ -7,10 +7,18 @@ const cors = require('cors');
 require('dotenv').config(); 
 const app = express();
 app.use(cors({
-  origin: ['https://videosense.vercel.app/'],  // Allows all origins (less secure but works for development)
-  credentials: true
+  origin: [
+    'http://localhost:3000',           // Local development
+    'http://localhost:5173',           // Local Vite dev server  
+    'https://videosense.vercel.app',   // Your Vercel deployment
+    'https://*.vercel.app'             // Any Vercel preview deployments
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
-
+// Handle preflight requests for all routes
+app.options('*', cors());
 app.use(express.json());
 app.use(bodyParser.json());
 
