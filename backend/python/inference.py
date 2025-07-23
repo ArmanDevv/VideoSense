@@ -148,43 +148,100 @@ class YouTubeDownloader:
         self.temp_dir = temp_dir or tempfile.gettempdir()
         
     def download_video(self, video_url, max_duration=600):  # 10 minutes max
-        """Download video from YouTube URL and return local path"""
         try:
             # Create unique filename
             temp_video_path = os.path.join(self.temp_dir, f"temp_video_{os.getpid()}.mp4")
             
-            # yt-dlp options - SUPPRESS ALL OUTPUT
+            # yt-dlp options with anti-bot protection
             ydl_opts = {
-                'format': 'best[height<=720][ext=mp4]/best[ext=mp4]/best',  # Prefer MP4, max 720p
+                'format': 'worst[height<=480][ext=mp4]/worst[ext=mp4]/best[height<=720][ext=mp4]/best[ext=mp4]',  # Prefer lower quality first
                 'outtmpl': temp_video_path,
                 'noplaylist': True,
                 'extract_flat': False,
                 'writethumbnail': False,
                 'writeinfojson': False,
-                'quiet': True,              # Suppress most output
-                'no_warnings': True,        # Suppress warnings
-                'noprogress': True,         # ✅ KEY FIX: Suppress progress messages
+                'quiet': True,
+                'no_warnings': True,
+                'noprogress': True,
                 'match_filter': self._duration_filter(max_duration),
+                
+                # Anti-bot protection measures
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'referer': 'https://www.youtube.com/',
+                'headers': {
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-us,en;q=0.5',
+                    'Accept-Encoding': 'gzip,deflate',
+                    'Accept-Charset': 'ISO-8859-1,utf-8;q=0.7,*;q=0.7',
+                    'Keep-Alive': '300',
+                    'Connection': 'keep-alive',
+                },
+                
+                # Rate limiting to appear more human-like  
+                'sleep_interval': 1,
+                'max_sleep_interval': 3,
+                'sleep_interval_subtitles': 1,
+                
+                # Retry settings
+                'retries': 3,
+                'fragment_retries': 3,
+                'retry_sleep_functions': {'http': lambda n: 2 ** n},
+                
+                # Additional anti-detection measures
+                'nocheckcertificate': True,
+                'ignoreerrors': False,
+                'logtostderr': False,
+                'extract_comments': False,
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                # Get video info first
-                info = ydl.extract_info(video_url, download=False)
-                duration = info.get('duration', 0)
-                
-                if duration > max_duration:
-                    raise ValueError(f"Video too long: {duration}s > {max_duration}s")
-                
-                # Download the video
-                ydl.download([video_url])
-                
+                try:
+                    # Get video info first
+                    print(f"Extracting video info from: {video_url}", file=sys.stderr)
+                    info = ydl.extract_info(video_url, download=False)
+                    duration = info.get('duration', 0)
+                    
+                    if duration > max_duration:
+                        raise ValueError(f"Video too long: {duration}s > {max_duration}s")
+                    
+                    print(f"Starting download: {info.get('title', 'Unknown')} ({duration}s)", file=sys.stderr)
+                    
+                    # Add a small delay before download
+                    import time
+                    time.sleep(1)
+                    
+                    # Download the video
+                    ydl.download([video_url])
+                    
+                except yt_dlp.DownloadError as e:
+                    error_msg = str(e).lower()
+                    if 'sign in' in error_msg or 'bot' in error_msg:
+                        raise ValueError("YouTube has detected automated access. This is common with server-based applications. Please try again later or use a different video.")
+                    elif 'private' in error_msg or 'unavailable' in error_msg:
+                        raise ValueError("This video is private or unavailable. Please try a different public video.")
+                    elif 'blocked' in error_msg or 'restricted' in error_msg:
+                        raise ValueError("This video is geographically restricted or blocked. Please try a different video.")
+                    else:
+                        raise ValueError(f"YouTube download failed: {str(e)}")
+            
             if not os.path.exists(temp_video_path):
-                raise ValueError("Download failed - file not created")
+                raise ValueError("Download failed - video file was not created")
                 
+            print(f"Video successfully downloaded to: {temp_video_path}", file=sys.stderr)
             return temp_video_path
             
         except Exception as e:
-            raise ValueError(f"YouTube download error: {str(e)}")
+            # Clean up partial downloads
+            if 'temp_video_path' in locals() and os.path.exists(temp_video_path):
+                try:
+                    os.remove(temp_video_path)
+                except:
+                    pass
+            
+            error_msg = str(e)
+            print(f"Download error: {error_msg}", file=sys.stderr)
+            raise ValueError(f"YouTube download error: {error_msg}")
+
     
     def _duration_filter(self, max_duration):
         """Filter function to check video duration before download"""
