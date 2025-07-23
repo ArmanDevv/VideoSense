@@ -106,7 +106,7 @@ const HomePage = () => {
     setAnalyzingVideoId(video.id);
     
     try {
-      const response = await fetch('http://videosense-production.up.railway.app/api/analyze', {
+      const response = await fetch('https://videosense-production.up.railway.app/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ videoUrl: video.url }),
