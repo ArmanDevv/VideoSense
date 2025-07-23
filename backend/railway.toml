@@ -1,0 +1,14 @@
+[build]
+builder = "nixpacks"
+
+[phases.setup]
+nixPkgs = ["nodejs_18", "python39", "python39Packages.pip"]
+
+[phases.install] 
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["pip3 install -r requirements.txt"]
+
+[phases.start]
+cmd = "node server.js"
