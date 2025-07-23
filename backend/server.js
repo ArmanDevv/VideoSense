@@ -107,8 +107,8 @@ app.post('/api/analyze', async (req, res) => {
   
   console.log(`Starting analysis for: ${videoUrl}`);
   
-  const py = spawn('python3', [
-    path.join(__dirname, 'python', 'inference.py'),
+  const py = spawn('./venv/bin/python3',[
+    './python/inference.py',
     '--video_url', videoUrl
   ], {
     cwd: __dirname,
