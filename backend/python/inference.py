@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import subprocess
 import torchaudio
+import time
 import psutil
 import whisper 
 from transformers import AutoTokenizer
@@ -333,61 +334,73 @@ class YouTubeDownloader:
             raise ValueError(f"Conservative download failed: {str(e)}")
 
 def download_model_if_missing(model_path, model_url):
-    """Download model file if it's missing or corrupted"""
+    """Download model file with timeout handling"""
     if not os.path.exists(model_path) or os.path.getsize(model_path) == 0:
-        print(f"Model file missing or corrupted, downloading from Google Drive...", file=sys.stderr)
+        print(f"Model file missing, downloading from Google Drive...", file=sys.stderr)
         
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
         
         try:
-            print(f"Downloading model from: {model_url}", file=sys.stderr)
-            
             session = requests.Session()
             
-            # Add timeout and retry logic
+            # CRITICAL: Add timeout and retry logic
             max_retries = 3
             for attempt in range(max_retries):
                 try:
-                    response = session.get(model_url, stream=True, timeout=30)  # 30 second timeout
+                    print(f"Download attempt {attempt + 1}/3...", file=sys.stderr)
+                    response = session.get(model_url, stream=True, timeout=60)  # 60 second timeout
                     response.raise_for_status()
                     break
                 except (requests.Timeout, requests.ConnectionError) as e:
-                    print(f"Download attempt {attempt + 1} failed: {str(e)}", file=sys.stderr)
+                    print(f"Attempt {attempt + 1} failed: {str(e)}", file=sys.stderr)
                     if attempt == max_retries - 1:
-                        raise
-                    time.sleep(5)  # Wait before retry
+                        raise ValueError(f"Failed to download after {max_retries} attempts")
+                    time.sleep(10)  # Wait before retry
             
             total_size = int(response.headers.get('content-length', 0))
             downloaded = 0
             
             print(f"Starting download... Total size: {total_size / (1024*1024):.1f}MB", file=sys.stderr)
             
-            # Add download timeout
+            # Add download progress timeout
             start_time = time.time()
-            max_download_time = 300  # 5 minutes max
+            max_download_time = 600  # 10 minutes max for large file
+            last_progress_time = start_time
             
             with open(model_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=1024*1024):
+                for chunk in response.iter_content(chunk_size=1024*1024):  # 1MB chunks
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
+                        current_time = time.time()
                         
-                        # Check for timeout
-                        if time.time() - start_time > max_download_time:
+                        # Check for overall timeout
+                        if current_time - start_time > max_download_time:
                             raise TimeoutError("Download timeout exceeded")
                         
+                        # Check for stalled download (no progress for 60 seconds)
+                        if current_time - last_progress_time > 60:
+                            raise TimeoutError("Download stalled - no progress for 60 seconds")
+                        
+                        last_progress_time = current_time
+                        
+                        # Progress logging
                         if total_size > 0:
                             percent = (downloaded / total_size) * 100
-                            if downloaded % (10 * 1024 * 1024) == 0:
-                                print(f"Download progress: {percent:.1f}%", file=sys.stderr)
+                            if downloaded % (20 * 1024 * 1024) == 0:  # Log every 20MB
+                                print(f"Download progress: {percent:.1f}% ({downloaded/(1024*1024):.1f}MB)", file=sys.stderr)
             
-            print(f"✓ Model downloaded successfully", file=sys.stderr)
+            file_size = os.path.getsize(model_path) / (1024*1024)
+            print(f"✓ Model downloaded successfully: {file_size:.1f}MB", file=sys.stderr)
             
         except Exception as e:
             print(f"✗ Model download failed: {str(e)}", file=sys.stderr)
             if os.path.exists(model_path):
                 os.remove(model_path)
             raise
+    else:
+        file_size = os.path.getsize(model_path) / (1024*1024)
+        print(f"✓ Model file already exists: {file_size:.1f}MB", file=sys.stderr)
 
 _model_cache = None
 
