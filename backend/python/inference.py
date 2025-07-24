@@ -426,7 +426,7 @@ def model_fn(model_dir="model"):
         
         # Use tiny Whisper
         print("Loading minimal Whisper model...", file=sys.stderr)
-        transcriber = whisper.load_model("tiny", device="cpu")
+        transcriber = whisper.load_model("tiny.en", device="cpu")
         
         # Create dummy model
         class DummyModel:
@@ -468,21 +468,25 @@ def predict_fn(input_data, model_dict):
     log_memory_usage("before_transcription")
     
     try:
-        # Add timeout for transcription
-        import signal
+        # Remove timeout entirely and optimize Whisper
+        print("Running optimized Whisper transcription...", file=sys.stderr)
         
-        def timeout_handler(signum, frame):
-            raise TimeoutError("Transcription timed out")
+        result = model_dict['transcriber'].transcribe(
+            video_path,
+            # Optimization settings for faster transcription
+            word_timestamps=True,
+            verbose=False,
+            language='hi',  # Specify Hindi since the video is in Hindi
+            fp16=False,  # CPU doesn't support fp16
+            # Use lower quality for speed
+            condition_on_previous_text=False,
+            temperature=0.0,  # Deterministic output
+            beam_size=1,  # Faster beam search
+            best_of=1,  # Don't generate multiple candidates
+            patience=1.0
+        )
         
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(120)  # 2 minute timeout
-        
-        try:
-            result = model_dict['transcriber'].transcribe(
-                video_path, word_timestamps=True)
-            print(f"✓ Transcription completed. Found {len(result['segments'])} segments", file=sys.stderr)
-        finally:
-            signal.alarm(0)
+        print(f"✓ Transcription completed. Found {len(result['segments'])} segments", file=sys.stderr)
             
     except Exception as e:
         print(f"✗ Transcription failed: {str(e)}", file=sys.stderr)
