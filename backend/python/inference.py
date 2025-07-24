@@ -284,108 +284,110 @@ class YouTubeDownloader:
             return None
         return filter_func
 
-def _download_with_conservative_settings(self, video_url, max_duration):
-    """Ultra-conservative download attempt as fallback"""
-    try:
-        temp_video_path = os.path.join(self.temp_dir, f"temp_video_conservative_{os.getpid()}.mp4")
-        
-        # Minimal, conservative options
-        ydl_opts = {
-            'format': 'worst[ext=mp4]/worst',  # Absolute worst quality
-            'outtmpl': temp_video_path,
-            'quiet': True,
-            'no_warnings': True,
-            'noprogress': True,
-            'retries': 1,
-            'fragment_retries': 1,
-            'match_filter': self._duration_filter(max_duration),
+    def _download_with_conservative_settings(self, video_url, max_duration):
+        """Ultra-conservative download attempt as fallback"""
+        try:
+            temp_video_path = os.path.join(self.temp_dir, f"temp_video_conservative_{os.getpid()}.mp4")
             
-            # Minimal headers
-            'user_agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20100101 Firefox/102.0',
+            # Minimal, conservative options
+            ydl_opts = {
+                'format': 'worst[ext=mp4]/worst',  # Absolute worst quality
+                'outtmpl': temp_video_path,
+                'quiet': True,
+                'no_warnings': True,
+                'noprogress': True,
+                'retries': 1,
+                'fragment_retries': 1,
+                'match_filter': self._duration_filter(max_duration),
+                
+                # Minimal headers
+                'user_agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20100101 Firefox/102.0',
+                
+                # Slower, more human-like behavior
+                'sleep_interval': 3,
+                'max_sleep_interval': 10,
+            }
             
-            # Slower, more human-like behavior
-            'sleep_interval': 3,
-            'max_sleep_interval': 10,
-        }
-        
-        print("Attempting conservative download fallback...", file=sys.stderr)
-        
-        # Wait longer before attempting 
-        import time
-        time.sleep(10)
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video_url])
+            print("Attempting conservative download fallback...", file=sys.stderr)
             
-        if os.path.exists(temp_video_path):
-            print(f"Conservative download succeeded: {temp_video_path}", file=sys.stderr)
-            return temp_video_path
-        else:
-            raise ValueError("Conservative download also failed - file not created")
+            # Wait longer before attempting 
+            import time
+            time.sleep(10)
             
-    except Exception as e:
-        # Clean up failed download
-        if 'temp_video_path' in locals() and os.path.exists(temp_video_path):
-            try:
-                os.remove(temp_video_path)
-            except:
-                pass
-        raise ValueError(f"Conservative download failed: {str(e)}")
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([video_url])
+                
+            if os.path.exists(temp_video_path):
+                print(f"Conservative download succeeded: {temp_video_path}", file=sys.stderr)
+                return temp_video_path
+            else:
+                raise ValueError("Conservative download also failed - file not created")
+                
+        except Exception as e:
+            # Clean up failed download
+            if 'temp_video_path' in locals() and os.path.exists(temp_video_path):
+                try:
+                    os.remove(temp_video_path)
+                except:
+                    pass
+            raise ValueError(f"Conservative download failed: {str(e)}")
 
 def download_model_if_missing(model_path, model_url):
     """Download model file if it's missing or corrupted"""
     if not os.path.exists(model_path) or os.path.getsize(model_path) == 0:
         print(f"Model file missing or corrupted, downloading from Google Drive...", file=sys.stderr)
         
-        # Create directory if it doesn't exist
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
         
         try:
             print(f"Downloading model from: {model_url}", file=sys.stderr)
             
-            # Handle Google Drive's virus scan warning for large files
             session = requests.Session()
-            response = session.get(model_url, stream=True)
             
-            # Check if Google Drive shows virus scan warning
-            if 'virus scan warning' in response.text.lower():
-                # Extract the actual download link from the warning page
-                import re
-                download_link = re.search(r'href="(/uc\?export=download[^"]+)"', response.text)
-                if download_link:
-                    actual_url = "https://drive.google.com" + download_link.group(1).replace('&amp;', '&')
-                    response = session.get(actual_url, stream=True)
+            # Add timeout and retry logic
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    response = session.get(model_url, stream=True, timeout=30)  # 30 second timeout
+                    response.raise_for_status()
+                    break
+                except (requests.Timeout, requests.ConnectionError) as e:
+                    print(f"Download attempt {attempt + 1} failed: {str(e)}", file=sys.stderr)
+                    if attempt == max_retries - 1:
+                        raise
+                    time.sleep(5)  # Wait before retry
             
-            response.raise_for_status()
-            
-            # Get file size for progress tracking
             total_size = int(response.headers.get('content-length', 0))
             downloaded = 0
             
             print(f"Starting download... Total size: {total_size / (1024*1024):.1f}MB", file=sys.stderr)
             
+            # Add download timeout
+            start_time = time.time()
+            max_download_time = 300  # 5 minutes max
+            
             with open(model_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=1024*1024):  # 1MB chunks
+                for chunk in response.iter_content(chunk_size=1024*1024):
                     if chunk:
                         f.write(chunk)
                         downloaded += len(chunk)
+                        
+                        # Check for timeout
+                        if time.time() - start_time > max_download_time:
+                            raise TimeoutError("Download timeout exceeded")
+                        
                         if total_size > 0:
                             percent = (downloaded / total_size) * 100
-                            if downloaded % (10 * 1024 * 1024) == 0:  # Log every 10MB
-                                print(f"Download progress: {percent:.1f}% ({downloaded/(1024*1024):.1f}MB)", file=sys.stderr)
+                            if downloaded % (10 * 1024 * 1024) == 0:
+                                print(f"Download progress: {percent:.1f}%", file=sys.stderr)
             
-            file_size = os.path.getsize(model_path) / (1024*1024)
-            print(f"✓ Model downloaded successfully: {file_size:.1f}MB", file=sys.stderr)
+            print(f"✓ Model downloaded successfully", file=sys.stderr)
             
         except Exception as e:
             print(f"✗ Model download failed: {str(e)}", file=sys.stderr)
-            # Clean up partial download
             if os.path.exists(model_path):
                 os.remove(model_path)
             raise
-    else:
-        file_size = os.path.getsize(model_path) / (1024*1024)
-        print(f"✓ Model file already exists: {file_size:.1f}MB", file=sys.stderr)
 
 _model_cache = None
 
