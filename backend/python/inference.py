@@ -237,7 +237,7 @@ class YouTubeDownloader:
                     if duration > max_duration:
                         raise ValueError(f"Video too long: {duration}s > {max_duration}s")
                     
-                    print(f"Starting download: {title} ({duration}s)", file=sys.stderr) 
+                    print(f"Starting download yay: {title} ({duration}s)", file=sys.stderr) 
                     
                     # Another small delay before actual download
                     time.sleep(random.uniform(1, 3))
