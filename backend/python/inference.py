@@ -148,6 +148,8 @@ class YouTubeDownloader:
         self.temp_dir = temp_dir or tempfile.gettempdir()
         
     def download_video(self, video_url, max_duration=600):
+        with open("yt_cookies.txt", "w") as f:
+            f.write(os.getenv("YTDL_COOKIES", ""))
         try:
             temp_video_path = os.path.join(self.temp_dir, f"temp_video_{os.getpid()}.mp4")
             
@@ -155,6 +157,7 @@ class YouTubeDownloader:
             ydl_opts = {
                 'format': 'worst[height<=480]/best[height<=720]/best',  # Start with lowest quality
                 'outtmpl': temp_video_path,
+                'cookiefile': 'yt_cookies.txt',
                 'noplaylist': True,
                 'quiet': True,
                 'no_warnings': True,
@@ -167,10 +170,12 @@ class YouTubeDownloader:
                 
                 # Cookie and session simulation
                 'extractor_args': {
-                    'youtube': {
-                        'skip_dash_manifest': True,
-                        'player_skip_js': True,
-                    }
+                    'youtube': [
+                        'player-client=mweb',
+                        'po_token=mweb.gvs+mweb.player',
+                        'skip=webpage',
+                        'player_skip=webpage,configs'
+                    ]
                 },
                 
                 # Headers to mimic real browser

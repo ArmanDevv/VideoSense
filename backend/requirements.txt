@@ -10,4 +10,7 @@ opencv-python-headless==4.8.0.74  # Headless version (smaller)
 numpy==1.24.3
 Pillow==9.5.0
 soundfile>=0.12.1
+yt-dlp>=2024.06.10
+yt-dlp-get-pot
+bgutil-ytdlp-pot-provider
 --extra-index-url https://download.pytorch.org/whl/cpu
