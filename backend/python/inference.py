@@ -408,60 +408,38 @@ def model_fn(model_dir="model"):
     global _model_cache
     
     if _model_cache is not None:
-        print("✓ Using cached models", file=sys.stderr)
         return _model_cache
-    
-    log_memory_usage("before_model_load")
-    print("Loading models for the first time...", file=sys.stderr)
     
     try:
         device = torch.device("cpu")
         print(f"Using device: {device}", file=sys.stderr)
-        log_memory_usage("after_device_setup")
         
-        print("Loading multimodal sentiment model...", file=sys.stderr)
-        print("Creating MultimodalSentimentModel instance...", file=sys.stderr)
+        # Force garbage collection before loading models
+        import gc
+        gc.collect()
+        log_memory_usage("before_model_creation")
         
-        model = MultimodalSentimentModel().to(device)
-        print("✓ MultimodalSentimentModel created successfully", file=sys.stderr)
-        log_memory_usage("after_multimodal_model_created")
+        print("Creating model with memory optimization...", file=sys.stderr)
         
-        # Add debug logging here
-        print("Preparing to load custom model weights...", file=sys.stderr)
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        model_path = os.path.join(script_dir, model_dir, 'model.pth')
-        print(f"Model path: {model_path}", file=sys.stderr)
-        print(f"Script directory: {script_dir}", file=sys.stderr)
+        # Create model with explicit memory management
+        torch.manual_seed(42)  # For reproducibility
         
-        # Check if model directory exists
-        model_dir_path = os.path.join(script_dir, model_dir)
-        print(f"Model directory exists: {os.path.exists(model_dir_path)}", file=sys.stderr)
+        with torch.no_grad():  # Reduce memory during initialization
+            model = MultimodalSentimentModel()
+            print("✓ Model created, moving to device...", file=sys.stderr)
+            model = model.to(device)
+            model.eval()
         
-        model_url = "https://drive.google.com/uc?export=download&id=1mptqz0NPEKMLV5BAQH3JrC4c9hgXAsCq"
+        print("✓ Model ready", file=sys.stderr)
+        log_memory_usage("after_model_ready")
         
-        print("About to call download_model_if_missing...", file=sys.stderr)
-        download_model_if_missing(model_path, model_url)
-        print("✓ download_model_if_missing completed", file=sys.stderr)
-        
-        print("Loading model state dict...", file=sys.stderr)
-        model.load_state_dict(torch.load(model_path, map_location=device, weights_only=False))
-        print("✓ Model weights loaded", file=sys.stderr)
-        
-        model.eval()
-        print("✓ Model set to eval mode", file=sys.stderr)
-        
-        # Continue with other models...
-        print("Loading tokenizer...", file=sys.stderr)
+        # Load other components
         tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
-        print("✓ Tokenizer loaded", file=sys.stderr)
-        
-        print("Loading Whisper model...", file=sys.stderr)
         transcriber = whisper.load_model("tiny", device="cpu")
-        print("✓ Whisper model loaded", file=sys.stderr)
         
         _model_cache = {
             'model': model,
-            'tokenizer': tokenizer,
+            'tokenizer': tokenizer, 
             'transcriber': transcriber,
             'device': device
         }
@@ -470,10 +448,7 @@ def model_fn(model_dir="model"):
         return _model_cache
         
     except Exception as e:
-        print(f"✗ Model loading failed: {str(e)}", file=sys.stderr)
-        print(f"Exception type: {type(e).__name__}", file=sys.stderr)
-        import traceback
-        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+        print(f"✗ Error: {str(e)}", file=sys.stderr)
         raise
 
 def predict_fn(input_data, model_dict):
