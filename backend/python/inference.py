@@ -284,6 +284,54 @@ class YouTubeDownloader:
             return None
         return filter_func
 
+def _download_with_conservative_settings(self, video_url, max_duration):
+    """Ultra-conservative download attempt as fallback"""
+    try:
+        temp_video_path = os.path.join(self.temp_dir, f"temp_video_conservative_{os.getpid()}.mp4")
+        
+        # Minimal, conservative options
+        ydl_opts = {
+            'format': 'worst[ext=mp4]/worst',  # Absolute worst quality
+            'outtmpl': temp_video_path,
+            'quiet': True,
+            'no_warnings': True,
+            'noprogress': True,
+            'retries': 1,
+            'fragment_retries': 1,
+            'match_filter': self._duration_filter(max_duration),
+            
+            # Minimal headers
+            'user_agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20100101 Firefox/102.0',
+            
+            # Slower, more human-like behavior
+            'sleep_interval': 3,
+            'max_sleep_interval': 10,
+        }
+        
+        print("Attempting conservative download fallback...", file=sys.stderr)
+        
+        # Wait longer before attempting 
+        import time
+        time.sleep(10)
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([video_url])
+            
+        if os.path.exists(temp_video_path):
+            print(f"Conservative download succeeded: {temp_video_path}", file=sys.stderr)
+            return temp_video_path
+        else:
+            raise ValueError("Conservative download also failed - file not created")
+            
+    except Exception as e:
+        # Clean up failed download
+        if 'temp_video_path' in locals() and os.path.exists(temp_video_path):
+            try:
+                os.remove(temp_video_path)
+            except:
+                pass
+        raise ValueError(f"Conservative download failed: {str(e)}")
+
 def download_model_if_missing(model_path, model_url):
     """Download model file if it's missing or corrupted"""
     if not os.path.exists(model_path) or os.path.getsize(model_path) == 0:
