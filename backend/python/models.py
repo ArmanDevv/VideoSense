@@ -24,26 +24,41 @@ class TextEncoder(nn.Module):
         return self.projection(pooler_output)
 
 
+# In models.py
 class VideoEncoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.backbone = vision_models.video.r3d_18(pretrained=True)
-
-        for param in self.backbone.parameters():
-            param.requires_grad = False
-
-        num_fts = self.backbone.fc.in_features
-        self.backbone.fc = nn.Sequential(
-            nn.Linear(num_fts, 128),
-            nn.ReLU(),
-            nn.Dropout(0.2)
-        )
+        self.backbone = None
+        self._initialized = False
+        
+    def _initialize_backbone(self):
+        if not self._initialized:
+            print("VideoEncoder: Loading R3D-18 (this may take a moment)...", file=sys.stderr)
+            try:
+                self.backbone = vision_models.video.r3d_18(pretrained=True)
+                
+                for param in self.backbone.parameters():
+                    param.requires_grad = False
+                
+                num_fts = self.backbone.fc.in_features
+                self.backbone.fc = nn.Sequential(
+                    nn.Linear(num_fts, 128),
+                    nn.ReLU(),
+                    nn.Dropout(0.2)
+                )
+                self._initialized = True
+                print("VideoEncoder: R3D-18 loaded successfully", file=sys.stderr)
+            except Exception as e:
+                print(f"VideoEncoder: Failed to load R3D-18: {str(e)}", file=sys.stderr)
+                raise
 
     def forward(self, x):
+        if not self._initialized:
+            self._initialize_backbone()
+        
         # [batch_size, frames, channels, height, width]->[batch_size, channels, frames, height, width]
         x = x.transpose(1, 2)
         return self.backbone(x)
-
 
 class AudioEncoder(nn.Module):
     def __init__(self):
