@@ -253,7 +253,13 @@ class YouTubeDownloader:
                     pass
                     
             raise ValueError(f"YouTube download error: {str(e)}")
-
+        finally:
+            # Clean up cookie file
+            if os.path.exists('yt_cookies.txt'):
+                try:
+                    os.remove('yt_cookies.txt')
+                except:
+                    pass
     
     def _duration_filter(self, max_duration):
         """Filter function to check video duration before download"""
@@ -265,34 +271,69 @@ class YouTubeDownloader:
         return filter_func
 
 
-
+_model_cache = None
 
 def model_fn(model_dir):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = MultimodalSentimentModel().to(device)
-
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    model_path = os.path.join(script_dir, model_dir, 'model.pth')
+    """Load model with caching to avoid repeated loading"""
+    global _model_cache
     
-    if not os.path.exists(model_path):
-        print(f"Script directory: {script_dir}", file=sys.stderr)
-        print(f"Looking for model at: {model_path}", file=sys.stderr)
-        raise FileNotFoundError(f"Model file not found at: {model_path}")
+    # Return cached models if available
+    if _model_cache is not None:
+        print("✓ Using cached models", file=sys.stderr)
+        return _model_cache
+    
+    print("Loading models for the first time...", file=sys.stderr)
+    
+    try:
+        # Device setup
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {device}", file=sys.stderr)
+        
+        # Load your custom multimodal model
+        print("Loading multimodal sentiment model...", file=sys.stderr)
+        model = MultimodalSentimentModel().to(device)
+        
+        # Load model weights
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.join(script_dir, model_dir, 'model.pth')
+        
+        if not os.path.exists(model_path):
+            print(f"Script directory: {script_dir}", file=sys.stderr)
+            print(f"Looking for model at: {model_path}", file=sys.stderr)
+            raise FileNotFoundError(f"Model file not found at: {model_path}")
 
-    print(f"Loading model from path: {model_path}", file=sys.stderr)
-    model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
-    model.eval()
-
-    return {
-        'model': model,
-        'tokenizer': AutoTokenizer.from_pretrained('bert-base-uncased'),
-        'transcriber': whisper.load_model(
+        print(f"Loading model weights from: {model_path}", file=sys.stderr)
+        model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+        model.eval()
+        print("✓ Multimodal model loaded", file=sys.stderr)
+        
+        # Load tokenizer (with caching)
+        print("Loading BERT tokenizer...", file=sys.stderr)
+        tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+        print("✓ Tokenizer loaded", file=sys.stderr)
+        
+        # Load Whisper model (with caching)
+        print("Loading Whisper transcription model...", file=sys.stderr)
+        transcriber = whisper.load_model(
             "base",
             device="cpu" if device.type == "cpu" else device,
-        ),
-        'device': device
-    }
-
+        )
+        print("✓ Whisper model loaded", file=sys.stderr)
+        
+        # Cache all models
+        _model_cache = {
+            'model': model,
+            'tokenizer': tokenizer,
+            'transcriber': transcriber,
+            'device': device
+        }
+        
+        print("✓ All models loaded and cached successfully", file=sys.stderr)
+        return _model_cache
+        
+    except Exception as e:
+        print(f"✗ Model loading failed: {str(e)}", file=sys.stderr)
+        raise
 
 def predict_fn(input_data, model_dict):
     model = model_dict['model']
@@ -378,12 +419,15 @@ def process_video_from_url(video_url, model_dir="model"):
         print(f"Video downloaded to: {video_path}", file=sys.stderr)
         
         # Load model
+        print("Step 2/4: Loading ML models...", file=sys.stderr)
         model_dict = model_fn(model_dir)
+        print("✓ Models loaded successfully", file=sys.stderr)
         
         # Process video
+        print("Step 3/4: Extracting features from video...", file=sys.stderr)
         input_data = {'video_path': video_path}
         predictions = predict_fn(input_data, model_dict)
-        
+        print("✓ Video processing complete", file=sys.stderr)
         return predictions
         
     except Exception as e:
