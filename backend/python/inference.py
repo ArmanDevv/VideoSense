@@ -11,6 +11,7 @@ from transformers import AutoTokenizer
 import argparse
 import requests
 import yt_dlp
+import gc
 import tempfile
 import json
 import sys
@@ -307,6 +308,8 @@ def model_fn(model_dir):
         
         # Load your custom multimodal model
         print("Loading multimodal sentiment model...", file=sys.stderr)
+        print("Creating MultimodalSentimentModel instance...", file=sys.stderr)  # NEW
+        
         model = MultimodalSentimentModel().to(device)
         print("✓ MultimodalSentimentModel created", file=sys.stderr)
         log_memory_usage("after_multimodal_model_created")
@@ -315,27 +318,35 @@ def model_fn(model_dir):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         model_path = os.path.join(script_dir, model_dir, 'model.pth')
         
+        print(f"Script directory: {script_dir}", file=sys.stderr)  # NEW
+        print(f"Model path: {model_path}", file=sys.stderr)  # NEW
+        
         if not os.path.exists(model_path):
-            print(f"Script directory: {script_dir}", file=sys.stderr)
-            print(f"Looking for model at: {model_path}", file=sys.stderr)
+            print(f"ERROR: Model file not found at: {model_path}", file=sys.stderr)
             raise FileNotFoundError(f"Model file not found at: {model_path}")
 
+        # Check file size
+        file_size = os.path.getsize(model_path) / (1024 * 1024)  # MB
+        print(f"Model file size: {file_size:.1f}MB", file=sys.stderr)  # NEW
+
         print(f"Loading model weights from: {model_path}", file=sys.stderr)
+        print("Starting torch.load()...", file=sys.stderr)  # NEW
+        
         model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
         print("✓ Model weights loaded", file=sys.stderr)
         log_memory_usage("after_model_weights")
         
+        print("Setting model to eval mode...", file=sys.stderr)  # NEW
         model.eval()
         print("✓ Multimodal model ready", file=sys.stderr)
         log_memory_usage("after_multimodal_model_ready")
         
-        # Load tokenizer (with caching)
+        # Continue with rest of the function...
         print("Loading BERT tokenizer...", file=sys.stderr)
         tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
         print("✓ Tokenizer loaded", file=sys.stderr)
         log_memory_usage("after_tokenizer")
         
-        # Load Whisper model (with caching)
         print("Loading Whisper transcription model...", file=sys.stderr)
         transcriber = whisper.load_model(
             "base",
@@ -362,6 +373,9 @@ def model_fn(model_dir):
         
     except Exception as e:
         print(f"✗ Model loading failed: {str(e)}", file=sys.stderr)
+        print(f"Exception type: {type(e).__name__}", file=sys.stderr)  # NEW
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)  # NEW
         log_memory_usage("after_error")
         raise
 
