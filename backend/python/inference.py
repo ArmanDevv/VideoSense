@@ -341,7 +341,7 @@ def download_model_if_missing(model_path, model_url):
 
 _model_cache = None
 
-def model_fn(model_dir):
+def model_fn(model_dir="model"):
     """Load model with caching to avoid repeated loading"""
     global _model_cache
     
@@ -372,28 +372,40 @@ def model_fn(model_dir):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         model_path = os.path.join(script_dir, model_dir, 'model.pth')
         
-        # ✅ ADD THIS: Your Google Drive direct download URL
-        # ✅ Your actual Google Drive model URL
-        model_url = "https://drive.google.com/uc?export=download&id=1mptqz0NPEKMLV5BAQH3JrC4c9hgXAsCq"
-        
-        # Download model if missing
-        download_model_if_missing(model_path, model_url)
-        
         print(f"Script directory: {script_dir}", file=sys.stderr)
         print(f"Model path: {model_path}", file=sys.stderr)
         
+        # Your Google Drive direct download URL
+        model_url = "https://drive.google.com/uc?export=download&id=1mptqz0NPEKMLV5BAQH3JrC4c9hgXAsCq"
+        
+        # Test if requests is available
+        try:
+            import requests
+            print("✓ requests module available", file=sys.stderr)
+        except ImportError:
+            print("✗ ERROR: requests module not available!", file=sys.stderr)
+            raise ImportError("requests module is required for model download")
+        
+        # Download model if missing
+        print("Checking model file availability...", file=sys.stderr)
+        download_model_if_missing(model_path, model_url)
+        
+        # Verify model file exists and has correct size
         if not os.path.exists(model_path):
-            print(f"ERROR: Model file not found at: {model_path}", file=sys.stderr)
+            print(f"✗ ERROR: Model file not found at: {model_path}", file=sys.stderr)
             raise FileNotFoundError(f"Model file not found at: {model_path}")
 
         # Check file size
         file_size = os.path.getsize(model_path) / (1024 * 1024)  # MB
         print(f"Model file size: {file_size:.1f}MB", file=sys.stderr)
+        
+        if file_size < 500:  # Expected size should be around 545MB
+            print(f"⚠️ WARNING: Model file seems too small ({file_size:.1f}MB), expected ~545MB", file=sys.stderr)
 
         print(f"Loading model weights from: {model_path}", file=sys.stderr)
         print("Starting torch.load()...", file=sys.stderr)
         
-        # Load the model (using weights_only=False for now to avoid unpickling issues)
+        # Load the model (using weights_only=False to avoid unpickling issues for now)
         model.load_state_dict(torch.load(model_path, map_location=device, weights_only=False))
         print("✓ Model weights loaded", file=sys.stderr)
         log_memory_usage("after_model_weights")
@@ -403,12 +415,13 @@ def model_fn(model_dir):
         print("✓ Multimodal model ready", file=sys.stderr)
         log_memory_usage("after_multimodal_model_ready")
         
-        # Continue with rest of the function (tokenizer and whisper loading)...
+        # Load tokenizer
         print("Loading BERT tokenizer...", file=sys.stderr)
         tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
         print("✓ Tokenizer loaded", file=sys.stderr)
         log_memory_usage("after_tokenizer")
         
+        # Load Whisper model
         print("Loading Whisper transcription model...", file=sys.stderr)
         transcriber = whisper.load_model(
             "base",
@@ -426,6 +439,7 @@ def model_fn(model_dir):
         }
         
         # Force garbage collection to free up memory
+        print("Running garbage collection...", file=sys.stderr)
         gc.collect()
         print("✓ Memory cleanup completed", file=sys.stderr)
         log_memory_usage("after_gc")
