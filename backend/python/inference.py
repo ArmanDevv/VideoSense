@@ -414,37 +414,44 @@ def model_fn(model_dir="model"):
         device = torch.device("cpu")
         print(f"Using device: {device}", file=sys.stderr)
         
-        # Force garbage collection before loading models
-        import gc
-        gc.collect()
-        log_memory_usage("before_model_creation")
+        # Create model without loading heavy components
+        print("Creating lightweight model for testing...", file=sys.stderr)
         
-        print("Creating model with memory optimization...", file=sys.stderr)
+        # Skip BERT entirely for now
+        print("⚠️ SKIPPING BERT MODEL (testing mode)", file=sys.stderr)
         
-        # Create model with explicit memory management
-        torch.manual_seed(42)  # For reproducibility
-        
-        with torch.no_grad():  # Reduce memory during initialization
-            model = MultimodalSentimentModel()
-            print("✓ Model created, moving to device...", file=sys.stderr)
-            model = model.to(device)
-            model.eval()
-        
-        print("✓ Model ready", file=sys.stderr)
-        log_memory_usage("after_model_ready")
-        
-        # Load other components
+        # Use dummy tokenizer
+        from transformers import AutoTokenizer
         tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+        
+        # Use tiny Whisper
+        print("Loading minimal Whisper model...", file=sys.stderr)
         transcriber = whisper.load_model("tiny", device="cpu")
+        
+        # Create dummy model
+        class DummyModel:
+            def __init__(self):
+                self.device = device
+            def eval(self):
+                pass
+            def __call__(self, text_inputs, video_frames, audio_features):
+                # Return dummy predictions
+                batch_size = text_inputs['input_ids'].shape[0]
+                return {
+                    'emotions': torch.randn(batch_size, 7),  # 7 emotions
+                    'sentiments': torch.randn(batch_size, 3)  # 3 sentiments
+                }
+        
+        model = DummyModel()
         
         _model_cache = {
             'model': model,
-            'tokenizer': tokenizer, 
+            'tokenizer': tokenizer,
             'transcriber': transcriber,
             'device': device
         }
         
-        print("✓ All models loaded successfully", file=sys.stderr)
+        print("✓ Lightweight models loaded successfully", file=sys.stderr)
         return _model_cache
         
     except Exception as e:
