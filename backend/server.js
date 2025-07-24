@@ -127,7 +127,7 @@ app.post('/api/analyze', async (req, res) => {
       py.kill('SIGTERM');
       res.status(500).json({ error: 'Python script timeout' });
     }
-  }, 600000); // 2 minutes timeout
+  }, 900000); // 2 minutes timeout
   
   py.stdout.on('data', (chunk) => {
     stdoutData += chunk.toString();

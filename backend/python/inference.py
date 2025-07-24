@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import subprocess
 import torchaudio
+import psutil
 import whisper 
 from transformers import AutoTokenizer
 import argparse
@@ -17,6 +18,18 @@ import warnings
 
 warnings.filterwarnings("ignore")
 os.environ['PYTHONWARNINGS'] = 'ignore'
+
+def log_memory_usage(step_name):
+    """Log current memory usage for debugging"""
+    try:
+        process = psutil.Process(os.getpid())
+        memory_mb = process.memory_info().rss / 1024 / 1024
+        available_mb = psutil.virtual_memory().available / 1024 / 1024
+        total_mb = psutil.virtual_memory().total / 1024 / 1024
+        print(f"Memory at {step_name}: {memory_mb:.1f}MB used, {available_mb:.1f}MB available, {total_mb:.1f}MB total", file=sys.stderr)
+    except Exception as e:
+        print(f"Memory logging failed: {e}", file=sys.stderr)
+
 
 EMOTION_MAP = {0: "anger", 1: "disgust", 2: "fear",
                3: "joy", 4: "neutral", 5: "sadness", 6: "surprise"}
@@ -280,18 +293,23 @@ def model_fn(model_dir):
     # Return cached models if available
     if _model_cache is not None:
         print("✓ Using cached models", file=sys.stderr)
+        log_memory_usage("cached_models")
         return _model_cache
     
+    log_memory_usage("before_model_load")
     print("Loading models for the first time...", file=sys.stderr)
     
     try:
         # Device setup
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print(f"Using device: {device}", file=sys.stderr)
+        log_memory_usage("after_device_setup")
         
         # Load your custom multimodal model
         print("Loading multimodal sentiment model...", file=sys.stderr)
         model = MultimodalSentimentModel().to(device)
+        print("✓ MultimodalSentimentModel created", file=sys.stderr)
+        log_memory_usage("after_multimodal_model_created")
         
         # Load model weights
         script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -304,13 +322,18 @@ def model_fn(model_dir):
 
         print(f"Loading model weights from: {model_path}", file=sys.stderr)
         model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+        print("✓ Model weights loaded", file=sys.stderr)
+        log_memory_usage("after_model_weights")
+        
         model.eval()
-        print("✓ Multimodal model loaded", file=sys.stderr)
+        print("✓ Multimodal model ready", file=sys.stderr)
+        log_memory_usage("after_multimodal_model_ready")
         
         # Load tokenizer (with caching)
         print("Loading BERT tokenizer...", file=sys.stderr)
         tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
         print("✓ Tokenizer loaded", file=sys.stderr)
+        log_memory_usage("after_tokenizer")
         
         # Load Whisper model (with caching)
         print("Loading Whisper transcription model...", file=sys.stderr)
@@ -319,6 +342,7 @@ def model_fn(model_dir):
             device="cpu" if device.type == "cpu" else device,
         )
         print("✓ Whisper model loaded", file=sys.stderr)
+        log_memory_usage("after_whisper")
         
         # Cache all models
         _model_cache = {
@@ -328,11 +352,17 @@ def model_fn(model_dir):
             'device': device
         }
         
+        # Force garbage collection to free up memory
+        gc.collect()
+        print("✓ Memory cleanup completed", file=sys.stderr)
+        log_memory_usage("after_gc")
+        
         print("✓ All models loaded and cached successfully", file=sys.stderr)
         return _model_cache
         
     except Exception as e:
         print(f"✗ Model loading failed: {str(e)}", file=sys.stderr)
+        log_memory_usage("after_error")
         raise
 
 def predict_fn(input_data, model_dict):
@@ -413,31 +443,45 @@ def process_video_from_url(video_url, model_dir="model"):
     video_path = None
     
     try:
-        # Download video
-        print(f"Downloading video from: {video_url}", file=sys.stderr)
-        video_path = downloader.download_video(video_url)
-        print(f"Video downloaded to: {video_path}", file=sys.stderr)
+        print("=== Starting Video Analysis ===", file=sys.stderr)
+        log_memory_usage("start_analysis")
         
-        # Load model
+        # Step 1: Download video
+        print("Step 1/4: Downloading video...", file=sys.stderr)
+        video_path = downloader.download_video(video_url)
+        print(f"✓ Video downloaded: {video_path}", file=sys.stderr)
+        log_memory_usage("after_download")
+        
+        # Step 2: Load model (cached after first call)
         print("Step 2/4: Loading ML models...", file=sys.stderr)
         model_dict = model_fn(model_dir)
-        print("✓ Models loaded successfully", file=sys.stderr)
+        print("✓ Models ready", file=sys.stderr)
+        log_memory_usage("after_models_ready")
         
-        # Process video
-        print("Step 3/4: Extracting features from video...", file=sys.stderr)
+        # Step 3: Process video
+        print("Step 3/4: Processing video and running inference...", file=sys.stderr)
         input_data = {'video_path': video_path}
+        log_memory_usage("before_inference")
+        
         predictions = predict_fn(input_data, model_dict)
+        log_memory_usage("after_inference")
         print("✓ Video processing complete", file=sys.stderr)
+        
+        # Step 4: Cleanup
+        print("Step 4/4: Cleaning up temporary files...", file=sys.stderr)
         return predictions
         
     except Exception as e:
+        print(f"✗ Error in video analysis: {str(e)}", file=sys.stderr)
+        log_memory_usage("after_error")
         return {"error": str(e)}
         
     finally:
         # Cleanup downloaded video
         if video_path and os.path.exists(video_path):
             os.remove(video_path)
-            print(f"Cleaned up: {video_path}", file=sys.stderr)
+            print(f"✓ Cleaned up: {video_path}", file=sys.stderr)
+        log_memory_usage("final_cleanup")
 
 
 def process_local_video(video_path, model_dir="model"):
