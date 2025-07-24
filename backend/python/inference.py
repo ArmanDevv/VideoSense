@@ -284,6 +284,60 @@ class YouTubeDownloader:
             return None
         return filter_func
 
+def download_model_if_missing(model_path, model_url):
+    """Download model file if it's missing or corrupted"""
+    if not os.path.exists(model_path) or os.path.getsize(model_path) == 0:
+        print(f"Model file missing or corrupted, downloading from Google Drive...", file=sys.stderr)
+        
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+        
+        try:
+            print(f"Downloading model from: {model_url}", file=sys.stderr)
+            
+            # Handle Google Drive's virus scan warning for large files
+            session = requests.Session()
+            response = session.get(model_url, stream=True)
+            
+            # Check if Google Drive shows virus scan warning
+            if 'virus scan warning' in response.text.lower():
+                # Extract the actual download link from the warning page
+                import re
+                download_link = re.search(r'href="(/uc\?export=download[^"]+)"', response.text)
+                if download_link:
+                    actual_url = "https://drive.google.com" + download_link.group(1).replace('&amp;', '&')
+                    response = session.get(actual_url, stream=True)
+            
+            response.raise_for_status()
+            
+            # Get file size for progress tracking
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded = 0
+            
+            print(f"Starting download... Total size: {total_size / (1024*1024):.1f}MB", file=sys.stderr)
+            
+            with open(model_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=1024*1024):  # 1MB chunks
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size > 0:
+                            percent = (downloaded / total_size) * 100
+                            if downloaded % (10 * 1024 * 1024) == 0:  # Log every 10MB
+                                print(f"Download progress: {percent:.1f}% ({downloaded/(1024*1024):.1f}MB)", file=sys.stderr)
+            
+            file_size = os.path.getsize(model_path) / (1024*1024)
+            print(f"✓ Model downloaded successfully: {file_size:.1f}MB", file=sys.stderr)
+            
+        except Exception as e:
+            print(f"✗ Model download failed: {str(e)}", file=sys.stderr)
+            # Clean up partial download
+            if os.path.exists(model_path):
+                os.remove(model_path)
+            raise
+    else:
+        file_size = os.path.getsize(model_path) / (1024*1024)
+        print(f"✓ Model file already exists: {file_size:.1f}MB", file=sys.stderr)
 
 _model_cache = None
 
@@ -308,7 +362,7 @@ def model_fn(model_dir):
         
         # Load your custom multimodal model
         print("Loading multimodal sentiment model...", file=sys.stderr)
-        print("Creating MultimodalSentimentModel instance...", file=sys.stderr)  # NEW
+        print("Creating MultimodalSentimentModel instance...", file=sys.stderr)
         
         model = MultimodalSentimentModel().to(device)
         print("✓ MultimodalSentimentModel created", file=sys.stderr)
@@ -318,8 +372,15 @@ def model_fn(model_dir):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         model_path = os.path.join(script_dir, model_dir, 'model.pth')
         
-        print(f"Script directory: {script_dir}", file=sys.stderr)  # NEW
-        print(f"Model path: {model_path}", file=sys.stderr)  # NEW
+        # ✅ ADD THIS: Your Google Drive direct download URL
+        # ✅ Your actual Google Drive model URL
+        model_url = "https://drive.google.com/uc?export=download&id=1mptqz0NPEKMLV5BAQH3JrC4c9hgXAsCq"
+        
+        # Download model if missing
+        download_model_if_missing(model_path, model_url)
+        
+        print(f"Script directory: {script_dir}", file=sys.stderr)
+        print(f"Model path: {model_path}", file=sys.stderr)
         
         if not os.path.exists(model_path):
             print(f"ERROR: Model file not found at: {model_path}", file=sys.stderr)
@@ -327,21 +388,22 @@ def model_fn(model_dir):
 
         # Check file size
         file_size = os.path.getsize(model_path) / (1024 * 1024)  # MB
-        print(f"Model file size: {file_size:.1f}MB", file=sys.stderr)  # NEW
+        print(f"Model file size: {file_size:.1f}MB", file=sys.stderr)
 
         print(f"Loading model weights from: {model_path}", file=sys.stderr)
-        print("Starting torch.load()...", file=sys.stderr)  # NEW
+        print("Starting torch.load()...", file=sys.stderr)
         
-        model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+        # Load the model (using weights_only=False for now to avoid unpickling issues)
+        model.load_state_dict(torch.load(model_path, map_location=device, weights_only=False))
         print("✓ Model weights loaded", file=sys.stderr)
         log_memory_usage("after_model_weights")
         
-        print("Setting model to eval mode...", file=sys.stderr)  # NEW
+        print("Setting model to eval mode...", file=sys.stderr)
         model.eval()
         print("✓ Multimodal model ready", file=sys.stderr)
         log_memory_usage("after_multimodal_model_ready")
         
-        # Continue with rest of the function...
+        # Continue with rest of the function (tokenizer and whisper loading)...
         print("Loading BERT tokenizer...", file=sys.stderr)
         tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
         print("✓ Tokenizer loaded", file=sys.stderr)
@@ -373,9 +435,9 @@ def model_fn(model_dir):
         
     except Exception as e:
         print(f"✗ Model loading failed: {str(e)}", file=sys.stderr)
-        print(f"Exception type: {type(e).__name__}", file=sys.stderr)  # NEW
+        print(f"Exception type: {type(e).__name__}", file=sys.stderr)
         import traceback
-        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)  # NEW
+        print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
         log_memory_usage("after_error")
         raise
 

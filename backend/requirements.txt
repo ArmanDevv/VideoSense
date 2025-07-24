@@ -11,6 +11,7 @@ Pillow==9.5.0
 soundfile>=0.12.1
 yt-dlp>=2024.06.10
 psutil>=5.9.0
+requests>=2.28.0
 yt-dlp-get-pot
 bgutil-ytdlp-pot-provider
 --extra-index-url https://download.pytorch.org/whl/cpu
